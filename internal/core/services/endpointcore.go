@@ -41,16 +41,17 @@ type EndpointCore struct {
 }
 
 // NewEndpointCore returns a new initialized endpoint core struct
-func NewEndpointCore(id string, name string, discoveredBy string) *EndpointCore {
+func NewEndpointCore(id string, name string, discoveredBy string, dims map[string]string) *EndpointCore {
 	if id == "" {
 		// Observers must provide an ID or else they are majorly broken
 		panic("EndpointCore cannot be created without an id")
 	}
 
 	ec := &EndpointCore{
-		ID:           ID(id),
-		Name:         name,
-		DiscoveredBy: discoveredBy,
+		ID:              ID(id),
+		Name:            name,
+		DiscoveredBy:    discoveredBy,
+		extraDimensions: dims,
 	}
 
 	return ec

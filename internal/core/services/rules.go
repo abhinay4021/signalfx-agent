@@ -1,9 +1,9 @@
 package services
 
 import (
-	"errors"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/signalfx/signalfx-agent/internal/utils"
 	log "github.com/sirupsen/logrus"
 
@@ -53,29 +53,27 @@ func parseRuleText(text string) (*govaluate.EvaluableExpression, error) {
 	return govaluate.NewEvaluableExpressionWithFunctions(text, ruleFunctions)
 }
 
-// DoesServiceMatchRule returns true if service endpoint satisfies the rule
-// given
-func DoesServiceMatchRule(si Endpoint, ruleText string) bool {
+func evaluateRule(si Endpoint, ruleText string, errorOnMissing bool) (interface{}, error) {
 	rule, err := parseRuleText(ruleText)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"discoveryRule": ruleText,
-		}).Error("Could not parse discovery rule")
-		return false
+		return nil, errors.WithMessage(err, "Could not parse rule")
 	}
 
 	asMap := utils.DuplicateInterfaceMapKeysAsCamelCase(EndpointAsMap(si))
 	if err := endpointMapHasAllVars(asMap, rule.Vars()); err != nil {
-		log.WithFields(log.Fields{
-			"discoveryRule":   rule.String(),
-			"values":          asMap,
-			"serviceInstance": si,
-			"error":           err,
-		}).Debug("Endpoint does not include some variables used in rule, assuming does not match")
-		return false
+		// If there are missing vars
+		if !errorOnMissing {
+			return nil, nil
+		}
 	}
 
-	ret, err := rule.Evaluate(asMap)
+	return rule.Evaluate(asMap)
+}
+
+// DoesServiceMatchRule returns true if service endpoint satisfies the rule
+// given
+func DoesServiceMatchRule(si Endpoint, ruleText string) bool {
+	ret, err := evalutateRule(si, ruleText, false)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"discoveryRule":   rule.String(),
@@ -86,6 +84,9 @@ func DoesServiceMatchRule(si Endpoint, ruleText string) bool {
 		return false
 	}
 
+	if ret == nil {
+		return false
+	}
 	exprVal, ok := ret.(bool)
 	if !ok {
 		log.WithFields(log.Fields{
