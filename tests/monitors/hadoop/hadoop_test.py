@@ -44,6 +44,7 @@ def distribute_hostnames(containers):
                 )
 
 
+@pytest.mark.flaky(reruns=2, reruns_delay=5)
 @pytest.mark.parametrize("version", ["2.9.1", "3.0.3"])
 def test_hadoop(version):
     with run_service("hadoop", buildargs={"HADOOP_VER": version}, hostname="hadoop-master") as hadoop_master:
