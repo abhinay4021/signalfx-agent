@@ -24,7 +24,7 @@ AGENT_CLUSTERROLE_PATH = os.environ.get("AGENT_CLUSTERROLE_PATH", os.path.join(A
 AGENT_CLUSTERROLEBINDING_PATH = os.environ.get(
     "AGENT_CLUSTERROLEBINDING_PATH", os.path.join(AGENT_YAMLS_DIR, "clusterrolebinding.yaml")
 )
-K8S_CREATE_TIMEOUT = 180
+K8S_CREATE_TIMEOUT = int(os.environ.get("K8S_CREATE_TIMEOUT", 180))
 K8S_DELETE_TIMEOUT = 10
 
 
@@ -480,7 +480,20 @@ def get_pod_logs(name, namespace="default"):
         name,
         "\n".join([p.metadata.name for p in pods]),
     )
-    return api.read_namespaced_pod_log(name=pods[0].metadata.name, namespace=namespace)
+    logs = ""
+    for container_status in pods[0].status.container_statuses:
+        logs += "%s container log:\n" % container_status.name
+        if container_status.state.running:
+            try:
+                logs += api.read_namespaced_pod_log(
+                    name=pods[0].metadata.name, container=container_status.name, namespace=namespace
+                ).strip()
+            except ApiException as e:
+                logs += "failed to get log:\n%s" % str(e).strip()
+        else:
+            logs += "container is not running"
+        logs += "\n"
+    return logs
 
 
 def get_all_pods(namespace=None):

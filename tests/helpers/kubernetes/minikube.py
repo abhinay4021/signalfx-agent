@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from functools import partial as p
 
 import docker
+import requests
 import semver
 import yaml
 from kubernetes import config as kube_config
@@ -55,13 +56,17 @@ class Minikube:  # pylint: disable=too-many-instance-attributes
         return self.client
 
     def load_kubeconfig(self, kubeconfig_path="/kubeconfig", timeout=300):
+        def _kubeconfig_exists():
+            try:
+                return container_cmd_exit_0(self.container, "test -f %s" % kubeconfig_path)
+            except requests.exceptions.ConnectionError:
+                return False
+
         with tempfile.NamedTemporaryFile(dir="/tmp/scratch") as fd:
             kubeconfig = fd.name
-            assert wait_for(
-                p(container_cmd_exit_0, self.container, "test -f %s" % kubeconfig_path),
-                timeout_seconds=timeout,
-                interval_seconds=2,
-            ), ("timed out waiting for the minikube cluster to be ready!\n\n%s\n\n" % self.get_logs())
+            assert wait_for(_kubeconfig_exists, timeout_seconds=timeout, interval_seconds=2), (
+                "timed out waiting for the minikube cluster to be ready!\n\n%s\n\n" % self.get_logs()
+            )
             time.sleep(2)
             exit_code, output = self.container.exec_run("cp -f %s %s" % (kubeconfig_path, kubeconfig))
             assert exit_code == 0, "failed to get %s from minikube!\n%s" % (kubeconfig_path, output.decode("utf-8"))
@@ -124,7 +129,7 @@ class Minikube:  # pylint: disable=too-many-instance-attributes
             options["command"] = "/lib/systemd/systemd"
         else:
             options["command"] = "sleep inf"
-        print("\nDeploying minikube %s cluster ..." % self.k8s_version)
+        print("\nBuilding minikube %s image ..." % self.version)
         image, _ = self.host_client.images.build(
             path=os.path.join(TEST_SERVICES_DIR, "minikube"),
             buildargs={"MINIKUBE_VERSION": self.version},
@@ -132,6 +137,7 @@ class Minikube:  # pylint: disable=too-many-instance-attributes
             rm=True,
             forcerm=True,
         )
+        print("\nDeploying minikube %s cluster ..." % self.k8s_version)
         self.container = self.host_client.containers.run(image.id, detach=True, **options)
         self.name = self.container.name
         self.container.exec_run("start-minikube.sh", detach=True)
@@ -249,7 +255,7 @@ class Minikube:  # pylint: disable=too-many-instance-attributes
         try:
             yield self.agent
             print("\nAgent status:\n%s\n" % self.agent.get_status())
-            print("\nAgent container logs:\n%s\n" % self.agent.get_container_logs())
+            print("\nAgent logs:\n%s\n" % self.agent.get_container_logs())
         except Exception:
             print("\n%s\n" % get_all_logs(self))
             raise
