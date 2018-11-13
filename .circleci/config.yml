@@ -28,7 +28,14 @@ commands:
     steps:
       - attach_workspace:
           at: /tmp/workspace
-      - run: docker load -i /tmp/workspace/image.tar
+      - run:
+          name: Load agent image
+          command: |
+            if [ -f ~/.skip ]; then
+                echo "Found ~/.skip, skipping docker image load!"
+                exit 0
+            fi
+            docker load -i /tmp/workspace/image.tar
 
   install_pytest:
     description: Install pytest and dependencies with pyenv 3.6.3.
@@ -84,13 +91,31 @@ commands:
                 echo "Found ~/.skip, skipping tests!"
                 exit 0
             fi
+            TESTS_DIR="<< parameters.tests_dir >>"
+            if [ ! -d "$TESTS_DIR" ]; then
+                echo "Directory '$TESTS_DIR' not found!"
+                exit 1
+            fi
+            OPTS="--verbose --junitxml=~/testresults/results.xml --html=~/testresults/results.html --self-contained-html"
             mkdir /tmp/scratch
             mkdir ~/testresults
-            OPTS="--verbose --junitxml=~/testresults/results.xml --html=~/testresults/results.html --self-contained-html"
-            if [ "<< parameters.with_sudo >>" = "true" ]; then
-                sudo -E $PYENV_ROOT/shims/pytest $OPTS << parameters.pytest_options >> << parameters.tests_dir >>
+            if [ $CIRCLE_NODE_TOTAL -gt 1 ]; then
+                # Collect tests based on MARKERS and split them for parallelism
+                MAX_CIRCLE_NODES=${MAX_CIRCLE_NODES:-$CIRCLE_NODE_TOTAL}
+                TESTS=$(pytest --collect-only -m "$MARKERS" $TESTS_DIR | grep '<Module.*>' | cut -d "'" -f2 | \
+                    circleci tests split --split-by=timings --total=$MAX_CIRCLE_NODES --index=$CIRCLE_NODE_INDEX)
+                if [ -z "$TESTS" ]; then
+                    echo "No test files found after splitting based on '$MARKERS' marker(s)!"
+                    exit 1
+                fi
             else
-                pytest $OPTS << parameters.pytest_options >> << parameters.tests_dir >>
+                TESTS=$TESTS_DIR
+            fi
+            echo "Executing test(s) from $TESTS"
+            if [ "<< parameters.with_sudo >>" = "true" ]; then
+                sudo -E $PYENV_ROOT/shims/pytest $OPTS << parameters.pytest_options >> $TESTS
+            else
+                pytest $OPTS << parameters.pytest_options >> $TESTS
             fi
       - save_test_results
 
@@ -216,6 +241,7 @@ jobs:
 
   integration_tests:
     executor: machine_image
+    parallelism: 4
     steps:
       - checkout
       - import_image
@@ -250,6 +276,7 @@ jobs:
 
   k8s_integration_tests:
     executor: machine_image
+    parallelism: 2
     parameters:
       k8s_version:
         type: string
@@ -271,10 +298,11 @@ jobs:
                   touch ~/.skip
               fi
           fi
+          echo "export MARKERS='k8s'" >> $BASH_ENV
+          echo "export MAX_CIRCLE_NODES=$MAX_CIRCLE_NODES" >> $BASH_ENV
       - import_image
       - run_pytest:
-          pytest_options: "-n4 -m 'k8s' --exitfirst --k8s-version='<< parameters.k8s_version >>' --k8s-sfx-agent=quay.io/signalfx/signalfx-agent-dev:latest --k8s-timeout=600"
-          tests_dir: "./tests"
+          pytest_options: "-n4 -m \"$MARKERS\" --exitfirst --k8s-version='<< parameters.k8s_version >>' --k8s-sfx-agent=quay.io/signalfx/signalfx-agent-dev:latest --k8s-timeout=$K8S_TIMEOUT"
 
   installer_tests:
     executor: machine_image
@@ -378,9 +406,13 @@ jobs:
       - install_pylint_black:
           dir: << parameters.dir >>
       - run: |
-          TARGET=<< parameters.dir >>
-          if [ -f ~/.skip ]; then
-              echo "Code in $TARGET directory has not changed, skipping pylint/black!"
+          TARGET=<< parameters.target >>
+          TARGET_DIR=$TARGET
+          if [ "$TARGET" = "pytest" ]; then
+              TARGET_DIR="tests"
+          fi
+          if ! scripts/changes-include-dir $TARGET_DIR; then
+              echo "$TARGET code has not changed, skipping pylint/black!"
               exit 0
           fi
           declare -A cmd=( ["python"]="make lint-python" ["tests"]="make lint-pytest" )
