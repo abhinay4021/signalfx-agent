@@ -1,6 +1,7 @@
 package leadership
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sync"
@@ -31,13 +32,15 @@ var isLeader bool
 // subsequently false if the instance stops being the leader for some reason,
 // at which point the channel could send true again and so on. All monitors
 // that need leader election will share the same election process.  There is no
-// way to stop the leader election process once it starts.
+// way to stop the leader election process once it starts in this current
+// implementation, although the newer k8s client-go now supports doing that if
+// we wanted to.
 func RequestLeaderNotification(v1Client corev1.CoreV1Interface) (<-chan bool, func(), error) {
 	lock.Lock()
 	defer lock.Unlock()
 
 	if !started {
-		if err := startLeaderElection(v1Client); err != nil {
+		if err := startLeaderElection(context.Background(), v1Client); err != nil {
 			return nil, nil, err
 		}
 		started = true
@@ -67,7 +70,7 @@ func RequestLeaderNotification(v1Client corev1.CoreV1Interface) (<-chan bool, fu
 	}, nil
 }
 
-func startLeaderElection(v1Client corev1.CoreV1Interface) error {
+func startLeaderElection(ctx context.Context, v1Client corev1.CoreV1Interface) error {
 	ns := os.Getenv("MY_NAMESPACE")
 	if ns == "" {
 		return errors.New("MY_NAMESPACE envvar is not defined")
@@ -99,7 +102,7 @@ func startLeaderElection(v1Client corev1.CoreV1Interface) error {
 		RenewDeadline: 45 * time.Second,
 		RetryPeriod:   30 * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: func(_ <-chan struct{}) {},
+			OnStartedLeading: func(_ context.Context) {},
 			OnStoppedLeading: func() {},
 			OnNewLeader: func(identity string) {
 				lock.Lock()
@@ -125,7 +128,12 @@ func startLeaderElection(v1Client corev1.CoreV1Interface) error {
 
 	go func() {
 		for {
-			le.Run()
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				le.Run(ctx)
+			}
 		}
 	}()
 
