@@ -231,11 +231,14 @@ jobs:
             docker export $cid | tar -C "$BUNDLE_DIR" -xf -
             docker rm -fv $cid
             [ -f "$AGENT_BIN" ] || (echo "$AGENT_BIN not found!" && exit 1)
-            if ! scripts/changes-include-dir internal/monitors/collectd/openstack tests/monitors/openstack test-services/devstack; then
+            if ! scripts/changes-include-dir $(find . -iname "*devstack*" -o -iname "*openstack*" | sed 's|^\./||' | grep -v '^docs/'); then
                 MARKERS="$MARKERS and not openstack"
             fi
-            if ! scripts/changes-include-dir internal/monitors/conviva tests/monitors/conviva; then
+            if ! scripts/changes-include-dir $(find . -iname "*conviva*" | sed 's|^\./||' | grep -v '^docs/'); then
                 MARKERS="$MARKERS and not conviva"
+            fi
+            if ! scripts/changes-include-dir $(find . -iname "*jenkins*" | sed 's|^\./||' | grep -v '^docs/'); then
+                MARKERS="$MARKERS and not jenkins"
             fi
             echo "export BUNDLE_DIR='$BUNDLE_DIR'" >> $BASH_ENV
             echo "export AGENT_BIN='$AGENT_BIN'" >> $BASH_ENV
@@ -252,6 +255,22 @@ jobs:
         type: string
     steps:
       - checkout
+      - run: |
+          if scripts/changes-include-dir Gopkg.toml $(find . -iname "*k8s*" -o -iname "*kube*" | sed 's|^\./||' | grep -v '^docs/'); then
+              # Run k8s tests for all versions, but "disable" parallelism by running all tests on a single node,
+              # i.e. free other node quickly by not doing anything.
+              MAX_CIRCLE_NODES=1
+              if [ $CIRCLE_NODE_INDEX -ge $MAX_CIRCLE_NODES ]; then
+                  touch ~/.skip
+              fi
+          else
+              # Only run k8s tests for v1.7.0 and v1.12.0 if there are no relevant changes.
+              MAX_CIRCLE_NODES=$CIRCLE_NODE_TOTAL
+              if [[ "<< parameters.k8s_version >>" != "v1.7.0" && "<< parameters.k8s_version >>" != "v1.12.0" ]]; then
+                  echo "Skipping K8S << parameters.k8s_version >> integration tests."
+                  touch ~/.skip
+              fi
+          fi
       - import_image
       - run_pytest:
           pytest_options: "-n4 -m 'k8s' --exitfirst --k8s-version='<< parameters.k8s_version >>' --k8s-sfx-agent=quay.io/signalfx/signalfx-agent-dev:latest --k8s-timeout=600"
