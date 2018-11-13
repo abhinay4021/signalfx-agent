@@ -1,6 +1,8 @@
 import string
 from functools import partial as p
 
+import pytest
+
 from helpers.assertions import container_cmd_exit_0, has_datapoint_with_dim
 from helpers.util import container_ip, run_agent, run_container, wait_for
 
@@ -36,6 +38,7 @@ def create_znode(container, path, value):
     container.exec_run("zkCli.sh create %s '%s'" % (path, value))
 
 
+@pytest.mark.flaky(reruns=2)
 def test_basic_zk_config():
     with run_container("zookeeper:3.4") as zk_cont:
         assert wait_for(p(container_cmd_exit_0, zk_cont, "nc -z localhost 2181"), 5)
@@ -50,6 +53,7 @@ def test_basic_zk_config():
             assert wait_for(p(has_datapoint_with_dim, backend, "env", "prod"))
 
 
+@pytest.mark.flaky(reruns=2)
 def test_bad_globbing():
     with run_container("zookeeper:3.4") as zk_cont:
         assert wait_for(p(container_cmd_exit_0, zk_cont, "nc -z localhost 2181"), 5)
