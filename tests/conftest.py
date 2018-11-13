@@ -240,6 +240,7 @@ def agent_image(minikube, registry, request, worker_id):  # pylint: disable=rede
                 env={"PULL_CACHE": "yes", "AGENT_IMAGE_NAME": agent_image_name, "AGENT_VERSION": agent_image_tag},
                 stderr=subprocess.STDOUT,
                 check=True,
+                cwd=os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."),
             )
             sfx_agent_image = client.images.get(agent_image_name + ":" + agent_image_tag)
         temp_agent_name = "localhost:%d/signalfx-agent-dev" % registry["port"]
