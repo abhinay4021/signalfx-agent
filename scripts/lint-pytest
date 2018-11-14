@@ -1,0 +1,20 @@
+#!/bin/bash
+
+RC=0
+
+pip install -q -r tests/requirements.txt || exit 1
+
+LC_ALL=C.UTF-8 LANG=C.UTF-8 black --config tests/pyproject.toml tests/
+(( RC += $? ))
+
+bash -ec 'cd tests && pylint -j4 `find . -maxdepth 1 -mindepth 1 -type d -o -name "*.py"`'
+(( RC += $? ))
+
+for pyfile in $(find tests -name "*.py"); do
+    if ! [[ $(basename $pyfile) =~ ^(test_.*|.*_test)\.py$ ]] && grep -q 'def test_' $pyfile; then
+        echo "$pyfile needs to be renamed for pytest collection, e.g. test_something.py or something_test.py"
+        (( RC += 1 ))
+    fi
+done
+
+exit $RC

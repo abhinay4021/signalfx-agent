@@ -1,0 +1,15 @@
+#!/bin/bash
+
+RC=0
+
+pip install -q -e python/ || exit 1
+
+pip install -q -r python/test-requirements.txt || exit 1
+
+LC_ALL=C.UTF-8 LANG=C.UTF-8 black --config python/pyproject.toml python/
+(( RC += $? ))
+
+bash -ec 'cd python && pylint -j4 `find . -maxdepth 1 -mindepth 1 -type d -o -name "*.py"`'
+(( RC += $? ))
+
+exit $RC
