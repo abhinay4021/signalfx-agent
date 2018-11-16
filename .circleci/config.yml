@@ -112,11 +112,13 @@ commands:
                 TESTS=$TESTS_DIR
             fi
             echo "Executing test(s) from $TESTS"
+            for ((i=0;i<20;i++)); do
             if [ "<< parameters.with_sudo >>" = "true" ]; then
                 sudo -E $PYENV_ROOT/shims/pytest $OPTS << parameters.pytest_options >> $TESTS
             else
                 pytest $OPTS << parameters.pytest_options >> $TESTS
             fi
+            done
       - save_test_results
 
 jobs:
